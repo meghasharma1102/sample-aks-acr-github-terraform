@@ -23,9 +23,9 @@ aks_cluster_name   = "aks-private-01"
 aks_dns_prefix     = "aks-private-01"
 kubernetes_version = "1.34.7" # default version
 
-system_node_pool_vm_size   = "Standard_D4ds_v5"
+system_node_pool_vm_size   = "Standard_D2s_v5"
 system_node_pool_min_count = 1
-system_node_pool_max_count = 3
+system_node_pool_max_count = 1
 
 # user_node_pool_name = "usernp1"
 # user_node_pool_vm_size = "Standard_D4ds_v5"
@@ -33,7 +33,7 @@ system_node_pool_max_count = 3
 # user_node_pool_max_count = 5
 
 jumpbox_vm_name = "vm-aks-jumpbox-01"
-jumpbox_vm_size = "Standard_D2s_v5"
+jumpbox_vm_size = "Standard_B2s"
 admin_username  = "azureuser"
 # Provide the password via TF_VAR_admin_password locally or the JUMPBOX_ADMIN_PASSWORD GitHub secret.
 # Optional for demo. If commented, Terraform allows RDP from anywhere.
