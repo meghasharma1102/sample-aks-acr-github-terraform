@@ -4,17 +4,14 @@ on:
   push:
     branches:
       - main
-    paths:
-      - infra-terraform/**
-      - .github/workflows/terraform-infra.yml
-  pull_request:
+      - dev
     paths:
       - infra-terraform/**
       - .github/workflows/terraform-infra.yml
   workflow_dispatch:
     inputs:
       action:
-        description: Choose whether to generate a plan or apply it
+        description: What do you want to run?
         required: true
         default: plan
         type: choice
@@ -29,15 +26,19 @@ permissions:
 env:
   TERRAFORM_FOLDER: infra-terraform/env/prod
   TFVARS_FILE: terraform.tfvars
-  BACKEND_RESOURCE_GROUP: rg-backup-state-01
-  BACKEND_STORAGE_ACCOUNT: stcaseprojecttfstate
-  BACKEND_CONTAINER: tfstate
-  BACKEND_KEY: prod.terraform.tfstate
+  STATE_STORAGE_ACCOUNT: stcaseprojecttfstate
+  STATE_CONTAINER: tfstate
+  ARM_USE_AZUREAD: true
+  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
 jobs:
-  validate:
-    name: Terraform Validate
+  terraform:
+    name: Terraform
     runs-on: ubuntu-latest
+    env:
+      TF_VAR_admin_password: ${{ secrets.JUMPBOX_ADMIN_PASSWORD }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -45,126 +46,34 @@ jobs:
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
 
-      - name: Sign in to Azure
+      - name: Sign in to Azure with OIDC
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Terraform init and validate
-        working-directory: ${{ env.TERRAFORM_FOLDER }}
-        env:
-          TF_VAR_admin_password: ${{ secrets.JUMPBOX_ADMIN_PASSWORD }}
+      - name: Ensure Terraform state container exists
         run: |
-          set -euo pipefail
-          az storage account show \
-            --resource-group "$BACKEND_RESOURCE_GROUP" \
-            --name "$BACKEND_STORAGE_ACCOUNT" >/dev/null
-          STORAGE_KEY=$(az storage account keys list \
-            --resource-group "$BACKEND_RESOURCE_GROUP" \
-            --account-name "$BACKEND_STORAGE_ACCOUNT" \
-            --query "[0].value" -o tsv)
           az storage container create \
-            --name "$BACKEND_CONTAINER" \
-            --account-name "$BACKEND_STORAGE_ACCOUNT" \
-            --account-key "$STORAGE_KEY" >/dev/null
-          terraform init \
-            -backend-config="resource_group_name=$BACKEND_RESOURCE_GROUP" \
-            -backend-config="storage_account_name=$BACKEND_STORAGE_ACCOUNT" \
-            -backend-config="container_name=$BACKEND_CONTAINER" \
-            -backend-config="key=$BACKEND_KEY"
-          terraform validate
+            --name "$STATE_CONTAINER" \
+            --account-name "$STATE_STORAGE_ACCOUNT" \
+            --auth-mode login \
+            --output none
 
-  plan:
-    name: Terraform Plan
-    runs-on: ubuntu-latest
-    needs: validate
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Terraform init
+        working-directory: ${{ env.TERRAFORM_FOLDER }}
+        run: terraform init -input=false
 
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
-
-      - name: Sign in to Azure
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - name: Terraform validate
+        working-directory: ${{ env.TERRAFORM_FOLDER }}
+        run: terraform validate
 
       - name: Terraform plan
         working-directory: ${{ env.TERRAFORM_FOLDER }}
-        env:
-          TF_VAR_admin_password: ${{ secrets.JUMPBOX_ADMIN_PASSWORD }}
-        run: |
-          set -euo pipefail
-          az storage account show \
-            --resource-group "$BACKEND_RESOURCE_GROUP" \
-            --name "$BACKEND_STORAGE_ACCOUNT" >/dev/null
-          STORAGE_KEY=$(az storage account keys list \
-            --resource-group "$BACKEND_RESOURCE_GROUP" \
-            --account-name "$BACKEND_STORAGE_ACCOUNT" \
-            --query "[0].value" -o tsv)
-          az storage container create \
-            --name "$BACKEND_CONTAINER" \
-            --account-name "$BACKEND_STORAGE_ACCOUNT" \
-            --account-key "$STORAGE_KEY" >/dev/null
-          terraform init \
-            -backend-config="resource_group_name=$BACKEND_RESOURCE_GROUP" \
-            -backend-config="storage_account_name=$BACKEND_STORAGE_ACCOUNT" \
-            -backend-config="container_name=$BACKEND_CONTAINER" \
-            -backend-config="key=$BACKEND_KEY"
-          terraform plan -var-file="$TFVARS_FILE" -out="tfplan"
-
-      - name: Upload Terraform plan
-        uses: actions/upload-artifact@v4
-        with:
-          name: terraform-plan
-          path: ${{ env.TERRAFORM_FOLDER }}/tfplan
-          if-no-files-found: error
-
-  apply:
-    name: Terraform Apply
-    runs-on: ubuntu-latest
-    needs: plan
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'
-    environment: production
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download Terraform plan
-        uses: actions/download-artifact@v4
-        with:
-          name: terraform-plan
-          path: terraform-plan
-
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
-
-      - name: Sign in to Azure
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+        run: terraform plan -input=false -var-file="$TFVARS_FILE" -out=tfplan
 
       - name: Terraform apply
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'
         working-directory: ${{ env.TERRAFORM_FOLDER }}
-        env:
-          TF_VAR_admin_password: ${{ secrets.JUMPBOX_ADMIN_PASSWORD }}
-        run: |
-          set -euo pipefail
-          az storage account show \
-            --resource-group "$BACKEND_RESOURCE_GROUP" \
-            --name "$BACKEND_STORAGE_ACCOUNT" >/dev/null
-          STORAGE_KEY=$(az storage account keys list \
-            --resource-group "$BACKEND_RESOURCE_GROUP" \
-            --account-name "$BACKEND_STORAGE_ACCOUNT" \
-            --query "[0].value" -o tsv)
-          az storage container create \
-            --name "$BACKEND_CONTAINER" \
-            --account-name "$BACKEND_STORAGE_ACCOUNT" \
-            --account-key "$STORAGE_KEY" >/dev/null
-          terraform init \
-            -backend-config="resource_group_name=$BACKEND_RESOURCE_GROUP" \
-            -backend-config="storage_account_name=$BACKEND_STORAGE_ACCOUNT" \
-            -backend-config="container_name=$BACKEND_CONTAINER" \
-            -backend-config="key=$BACKEND_KEY"
-          terraform apply -auto-approve "$GITHUB_WORKSPACE/terraform-plan/tfplan"
+        run: terraform apply -input=false -auto-approve tfplan
