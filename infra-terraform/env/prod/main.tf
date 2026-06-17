@@ -5,7 +5,7 @@ data "azurerm_resource_group" "resource_group" {
 module "network" {
   source                        = "../../modules/network"
   rg_name                       = data.azurerm_resource_group.resource_group.name
-  location                      = data.azurerm_resource_group.resource_group.location
+  location                      = var.location
   vnet_name                     = var.vnet_name
   vnet_cidrs                    = var.vnet_cidrs
   aks_subnet_name               = var.aks_subnet_name
@@ -20,7 +20,7 @@ module "network" {
 module "acr" {
   source                     = "../../modules/acr"
   rg_name                    = data.azurerm_resource_group.resource_group.name
-  location                   = data.azurerm_resource_group.resource_group.location
+  location                   = var.location
   acr_name                   = var.acr_name
   private_endpoint_name      = var.acr_private_endpoint_name
   private_dns_zone_name      = var.acr_private_dns_zone_name
@@ -32,7 +32,7 @@ module "acr" {
 module "aks" {
   source                     = "../../modules/aks"
   rg_name                    = data.azurerm_resource_group.resource_group.name
-  location                   = data.azurerm_resource_group.resource_group.location
+  location                   = var.location
   cluster_name               = var.aks_cluster_name
   dns_prefix                 = var.aks_dns_prefix
   kubernetes_version         = var.kubernetes_version
@@ -52,7 +52,7 @@ module "aks" {
 module "jumpbox_vm" {
   source           = "../../modules/jumpbox_vm"
   rg_name          = data.azurerm_resource_group.resource_group.name
-  location         = data.azurerm_resource_group.resource_group.location
+  location         = var.location
   subnet_id        = module.network.vm_subnet_id
   vm_name          = var.jumpbox_vm_name
   vm_size          = var.jumpbox_vm_size
